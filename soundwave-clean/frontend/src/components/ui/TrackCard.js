@@ -1,8 +1,8 @@
 'use client';
-import { Play, Plus, MoreHorizontal, Heart } from 'lucide-react';
+import { Play, Plus, Heart, Download, Pause } from 'lucide-react';
 import { usePlayerStore, useUIStore } from '../../store';
-import { addTrackToPlaylist, getPlaylists, likeTrack } from '../../lib/api';
-import { useState, useRef, useEffect } from 'react';
+import { addTrackToPlaylist, getPlaylists, likeTrack, unlikeTrack, getStreamUrl } from '../../lib/api';
+import { useState } from 'react';
 import clsx from 'clsx';
 
 function formatDuration(seconds) {
@@ -12,189 +12,203 @@ function formatDuration(seconds) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export default function TrackCard({ track, queue = [], index = 0, onPlay }) {
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://soundwave-production-4bb6.up.railway.app';
+
+export default function TrackCard({ track, index, queue = [], showIndex = true }) {
   const { currentTrack, isPlaying, setQueue, setIsPlaying } = usePlayerStore();
   const { showNotification } = useUIStore();
-  const [showMenu, setShowMenu] = useState(false);
-  const [playlists, setPlaylists] = useState([]);
   const [liked, setLiked] = useState(false);
-  const menuRef = useRef(null);
+  const [downloading, setDownloading] = useState(false);
+  const [showPlaylists, setShowPlaylists] = useState(false);
+  const [playlists, setPlaylists] = useState([]);
 
-  const isActive = currentTrack?.youtubeId === track.youtubeId;
+  const isCurrentTrack = currentTrack?.youtubeId === track.youtubeId;
 
-  useEffect(() => {
-    function handleClickOutside(e) {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setShowMenu(false);
-      }
-    }
-    if (showMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showMenu]);
-
-  function handlePlay() {
-    if (onPlay) return onPlay(track, index);
-
-    if (isActive) {
+  const handlePlay = () => {
+    if (isCurrentTrack) {
       setIsPlaying(!isPlaying);
     } else {
-      const q = queue.length > 0 ? queue : [track];
-      const idx = queue.findIndex((t) => t.youtubeId === track.youtubeId);
-      setQueue(q, idx >= 0 ? idx : 0);
+      const startIndex = queue.findIndex(t => t.youtubeId === track.youtubeId);
+      setQueue(queue.length > 0 ? queue : [track], startIndex >= 0 ? startIndex : 0);
       setIsPlaying(true);
     }
-  }
+  };
 
-  async function handleAddToPlaylist(playlistId) {
+  const handleLike = async (e) => {
+    e.stopPropagation();
     try {
-      await addTrackToPlaylist(playlistId, track);
-      showNotification('Added to playlist!', 'success');
-      setShowMenu(false);
-    } catch (err) {
-      showNotification(err.response?.data?.error || 'Failed to add track', 'error');
+      if (liked) {
+        await unlikeTrack(track.id);
+        setLiked(false);
+      } else {
+        await likeTrack(track.id);
+        setLiked(true);
+      }
+    } catch {
+      showNotification('Failed to update like', 'error');
     }
-  }
+  };
 
-  async function loadPlaylists() {
+  const handleDownload = async (e) => {
+    e.stopPropagation();
+    if (downloading) return;
+    setDownloading(true);
+    showNotification('Preparing download...', 'info');
+
+    try {
+      const title = encodeURIComponent(track.title + ' - ' + track.artist);
+      const url = `${API_BASE}/api/download/${track.youtubeId}?title=${title}&quality=192k`;
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${track.title} - ${track.artist}.mp3`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      showNotification('Download started! 🎵', 'success');
+    } catch {
+      showNotification('Download failed', 'error');
+    } finally {
+      setTimeout(() => setDownloading(false), 3000);
+    }
+  };
+
+  const handleAddToPlaylist = async (e) => {
+    e.stopPropagation();
     try {
       const data = await getPlaylists();
       setPlaylists(data.playlists || []);
-    } catch {}
-  }
+      setShowPlaylists(true);
+    } catch {
+      showNotification('Failed to load playlists', 'error');
+    }
+  };
 
-  async function handleLike() {
+  const addToPlaylist = async (playlistId) => {
     try {
-      await likeTrack(track.id);
-      setLiked(true);
-      showNotification('Added to Liked Songs', 'success');
-    } catch {}
-  }
+      await addTrackToPlaylist(playlistId, track);
+      showNotification('Added to playlist!', 'success');
+      setShowPlaylists(false);
+    } catch (err) {
+      showNotification(err.response?.data?.error || 'Failed to add', 'error');
+    }
+  };
 
   return (
-    <div
-      className={clsx(
-        'track-card group flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer relative',
-        isActive && 'bg-accent/10'
-      )}
-      onDoubleClick={handlePlay}
-    >
-      {/* Index / Play button */}
-      <div className="w-8 flex-shrink-0 flex items-center justify-center">
-        {isActive && isPlaying ? (
-          <div className="flex gap-0.5">
-            <div className="eq-bar" style={{ height: '14px' }} />
-            <div className="eq-bar" style={{ height: '14px', animationDelay: '0.2s' }} />
-            <div className="eq-bar" style={{ height: '14px', animationDelay: '0.4s' }} />
-          </div>
-        ) : (
-          <>
-            <span className={clsx(
-              'text-sm text-text-muted group-hover:hidden',
-              isActive && 'text-accent'
-            )}>
-              {index + 1}
-            </span>
-            <button
-              onClick={handlePlay}
-              className="hidden group-hover:flex items-center justify-center text-text-primary"
-            >
-              <Play size={16} fill="currentColor" />
-            </button>
-          </>
+    <>
+      <div
+        className={clsx(
+          'group flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all',
+          isCurrentTrack ? 'bg-accent/10' : 'hover:bg-surface-3'
         )}
-      </div>
-
-      {/* Thumbnail */}
-      <div className="w-10 h-10 rounded flex-shrink-0 overflow-hidden bg-surface-3">
-        {track.thumbnailUrl ? (
-          <img
-            src={track.thumbnailUrl}
-            alt={track.title}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-text-muted text-lg">
-            ♪
+        onClick={handlePlay}
+      >
+        {/* Index / play button */}
+        {showIndex && (
+          <div className="w-6 text-center flex-shrink-0">
+            {isCurrentTrack && isPlaying ? (
+              <div className="flex gap-0.5 justify-center">
+                <div className="eq-bar" style={{ height: '12px' }} />
+                <div className="eq-bar" style={{ height: '12px', animationDelay: '0.2s' }} />
+                <div className="eq-bar" style={{ height: '12px', animationDelay: '0.4s' }} />
+              </div>
+            ) : (
+              <>
+                <span className="text-text-muted text-sm group-hover:hidden">{index + 1}</span>
+                <Play className="hidden group-hover:block text-text-primary mx-auto" size={14} fill="currentColor" />
+              </>
+            )}
           </div>
         )}
-      </div>
 
-      {/* Track info */}
-      <div className="flex-1 min-w-0">
-        <p className={clsx(
-          'text-sm font-medium truncate',
-          isActive ? 'text-accent' : 'text-text-primary'
-        )}>
-          {track.title}
-        </p>
-        <p className="text-xs text-text-secondary truncate">{track.artist}</p>
-      </div>
-
-      {/* Album */}
-      <p className="hidden md:block text-xs text-text-muted truncate max-w-[140px]">
-        {track.album}
-      </p>
-
-      {/* Duration + actions */}
-      <div className="flex items-center gap-3 flex-shrink-0">
-        <button
-          onClick={handleLike}
-          className={clsx(
-            'opacity-0 group-hover:opacity-100 transition-opacity',
-            liked ? 'text-pink-accent opacity-100' : 'text-text-muted hover:text-text-primary'
+        {/* Thumbnail */}
+        <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-surface-3 relative">
+          {track.thumbnailUrl || track.thumbnail ? (
+            <img
+              src={track.thumbnailUrl || track.thumbnail}
+              alt={track.title}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-text-muted">♪</div>
           )}
-        >
-          <Heart size={14} fill={liked ? 'currentColor' : 'none'} />
-        </button>
+          {/* Play overlay */}
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity rounded-lg">
+            {isCurrentTrack && isPlaying
+              ? <Pause size={14} fill="white" className="text-white" />
+              : <Play size={14} fill="white" className="text-white ml-0.5" />
+            }
+          </div>
+        </div>
 
-        <span className="text-xs text-text-muted w-8 text-right">
-          {formatDuration(track.duration)}
-        </span>
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <p className={clsx('text-sm font-medium truncate', isCurrentTrack ? 'text-accent' : 'text-text-primary')}>
+            {track.title}
+          </p>
+          <p className="text-text-secondary text-xs truncate">{track.artist}</p>
+        </div>
 
-        {/* More menu */}
-        <div className="relative" ref={menuRef}>
+        {/* Duration */}
+        {track.duration && (
+          <span className="text-text-muted text-xs flex-shrink-0 hidden md:block">
+            {formatDuration(track.duration)}
+          </span>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!showMenu) loadPlaylists();
-              setShowMenu(!showMenu);
-            }}
-            className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary transition-opacity"
+            onClick={handleLike}
+            className={clsx('p-1.5 rounded-lg transition-colors', liked ? 'text-pink-400' : 'text-text-muted hover:text-text-primary')}
+            title="Like"
           >
-            <MoreHorizontal size={16} />
+            <Heart size={15} fill={liked ? 'currentColor' : 'none'} />
           </button>
-
-          {showMenu && (
-            <div className="absolute right-0 bottom-8 w-52 bg-surface-3 border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden py-1">
-              <button
-                onClick={handlePlay}
-                className="w-full text-left px-4 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-surface-4 transition-colors"
-              >
-                Play now
-              </button>
-              <div className="border-t border-white/5 my-1" />
-              <p className="px-4 py-1.5 text-xs text-text-muted font-semibold uppercase tracking-wider">
-                Add to playlist
-              </p>
-              {playlists.map((pl) => (
-                <button
-                  key={pl.id}
-                  onClick={() => handleAddToPlaylist(pl.id)}
-                  className="w-full text-left px-4 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-surface-4 transition-colors flex items-center gap-2"
-                >
-                  <Plus size={12} />
-                  <span className="truncate">{pl.name}</span>
-                </button>
-              ))}
-              {playlists.length === 0 && (
-                <p className="px-4 py-2 text-xs text-text-muted">No playlists</p>
-              )}
-            </div>
-          )}
+          <button
+            onClick={handleDownload}
+            className={clsx('p-1.5 rounded-lg transition-colors', downloading ? 'text-accent animate-pulse' : 'text-text-muted hover:text-accent')}
+            title="Download MP3"
+          >
+            <Download size={15} />
+          </button>
+          <button
+            onClick={handleAddToPlaylist}
+            className="p-1.5 rounded-lg text-text-muted hover:text-accent transition-colors"
+            title="Add to playlist"
+          >
+            <Plus size={15} />
+          </button>
         </div>
       </div>
-    </div>
+
+      {/* Playlist picker modal */}
+      {showPlaylists && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end md:items-center justify-center p-4"
+          onClick={() => setShowPlaylists(false)}
+        >
+          <div className="bg-surface-2 rounded-2xl p-4 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <h3 className="text-text-primary font-semibold mb-3">Add to playlist</h3>
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {playlists.length === 0 && (
+                <p className="text-text-muted text-sm text-center py-4">No playlists yet</p>
+              )}
+              {playlists.map(pl => (
+                <button
+                  key={pl.id}
+                  onClick={() => addToPlaylist(pl.id)}
+                  className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-surface-3 text-text-primary text-sm transition-colors"
+                >
+                  {pl.name}
+                  <span className="text-text-muted ml-2 text-xs">{pl._count?.tracks || 0} tracks</span>
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setShowPlaylists(false)} className="w-full mt-3 py-2 text-text-muted text-sm">Cancel</button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
