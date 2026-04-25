@@ -7,6 +7,7 @@ const { PrismaClient } = require('@prisma/client');
 const logger = require('./lib/logger');
 
 const streamRoutes = require('./routes/stream');
+const downloadRoutes = require('./routes/download');
 const searchRoutes = require('./routes/search');
 const playlistRoutes = require('./routes/playlists');
 const trackRoutes = require('./routes/tracks');
@@ -70,6 +71,7 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/api/stream', streamLimiter, streamRoutes);
+app.use('/api/download', streamLimiter, downloadRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/playlists', playlistRoutes);
 app.use('/api/tracks', trackRoutes);
