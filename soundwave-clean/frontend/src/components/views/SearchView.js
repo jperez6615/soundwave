@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Search, X, Loader2 } from 'lucide-react';
 import { useUIStore, usePlayerStore } from '../../store';
 import { searchMusic } from '../../lib/api';
@@ -14,6 +14,16 @@ function useDebounce(value, delay) {
   return debounced;
 }
 
+// Normalize search result to have consistent field names
+function normalizeTrack(track) {
+  return {
+    ...track,
+    youtubeId: track.youtubeId || track.id,
+    thumbnailUrl: track.thumbnailUrl || track.thumbnail,
+    artist: track.artist || track.uploader || 'Unknown Artist',
+  };
+}
+
 export default function SearchView() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -21,7 +31,7 @@ export default function SearchView() {
   const [error, setError] = useState(null);
   const inputRef = useRef(null);
   const { setQueue, setIsPlaying, currentTrack } = usePlayerStore();
-  const { pendingSearch } = useUIStore();
+  const { pendingSearch, setPendingSearch } = useUIStore();
 
   const debouncedQuery = useDebounce(query, 500);
 
@@ -29,16 +39,14 @@ export default function SearchView() {
   useEffect(() => {
     if (pendingSearch) {
       setQuery(pendingSearch);
-      useUIStore.setState({ pendingSearch: null });
+      setPendingSearch(null);
     }
   }, [pendingSearch]);
 
-  // Auto-focus on mount
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  // Perform search
   useEffect(() => {
     if (!debouncedQuery.trim() || debouncedQuery.trim().length < 2) {
       setResults([]);
@@ -52,10 +60,10 @@ export default function SearchView() {
     searchMusic(debouncedQuery, 15)
       .then((data) => {
         if (!cancelled) {
-          setResults(data.results || []);
+          setResults((data.results || []).map(normalizeTrack));
         }
       })
-      .catch((err) => {
+      .catch(() => {
         if (!cancelled) {
           setError('Search failed. Make sure the backend is running.');
           setResults([]);
@@ -80,21 +88,13 @@ export default function SearchView() {
 
   return (
     <div className="px-6 py-8 max-w-screen-xl mx-auto">
-      {/* Search header */}
       <div className="mb-8">
-        <h1
-          className="text-2xl font-bold text-text-primary mb-6"
-          style={{ fontFamily: "'Playfair Display', serif" }}
-        >
+        <h1 className="text-2xl font-bold text-text-primary mb-6"
+          style={{ fontFamily: "'Playfair Display', serif" }}>
           Search
         </h1>
-
-        {/* Search input */}
         <div className="relative max-w-xl">
-          <Search
-            size={18}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted"
-          />
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
             ref={inputRef}
             type="text"
@@ -114,7 +114,6 @@ export default function SearchView() {
         </div>
       </div>
 
-      {/* Loading state */}
       {loading && (
         <div className="flex items-center gap-2 text-text-muted text-sm mb-6">
           <Loader2 size={16} className="animate-spin" />
@@ -122,14 +121,12 @@ export default function SearchView() {
         </div>
       )}
 
-      {/* Error state */}
       {error && (
         <div className="bg-red-900/20 border border-red-500/20 rounded-xl px-4 py-3 text-red-400 text-sm mb-6">
           {error}
         </div>
       )}
 
-      {/* Results */}
       {results.length > 0 && (
         <section>
           <div className="flex items-center justify-between mb-4">
@@ -141,19 +138,17 @@ export default function SearchView() {
           <div className="space-y-1">
             {results.map((track, i) => (
               <TrackCard
-                key={track.id}
+                key={track.youtubeId || i}
                 track={track}
                 index={i}
-                isActive={currentTrack?.youtubeId === track.id}
-                onPlay={() => handlePlay(track, i)}
-                showAddToPlaylist
+                queue={results}
+                showIndex={true}
               />
             ))}
           </div>
         </section>
       )}
 
-      {/* Empty state / suggestions */}
       {!query && !loading && (
         <div>
           <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">
@@ -173,7 +168,6 @@ export default function SearchView() {
         </div>
       )}
 
-      {/* No results */}
       {!loading && query && results.length === 0 && !error && debouncedQuery === query && (
         <div className="text-center py-12">
           <p className="text-text-secondary text-sm">No results found for "{query}"</p>
