@@ -2,12 +2,13 @@
 import { useEffect, useState } from 'react';
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
-  Shuffle, Repeat, Repeat1, Heart, MicVocal,
+  Shuffle, Repeat, Repeat1, Heart, MicVocal, ChevronUp,
 } from 'lucide-react';
 import { usePlayerStore } from '../../store';
 import { useAudioPlayer } from '../../hooks/useAudioPlayer';
 import { getLyrics } from '../../lib/api';
 import LyricsPanel from './LyricsPanel';
+import FullscreenPlayer from './FullscreenPlayer';
 import clsx from 'clsx';
 
 function formatTime(seconds) {
@@ -28,12 +29,10 @@ export default function Player() {
   const { seek } = useAudioPlayer();
   const [lyricsData, setLyricsData] = useState(null);
   const [liked, setLiked] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
 
-  const displayDuration = (isFinite(duration) && duration > 0)
-    ? duration : (currentTrack?.duration || 0);
-  const displayProgress = displayDuration > 0
-    ? Math.min((currentTime / displayDuration) * 100, 100)
-    : progress;
+  const displayDuration = (isFinite(duration) && duration > 0) ? duration : (currentTrack?.duration || 0);
+  const displayProgress = displayDuration > 0 ? Math.min((currentTime / displayDuration) * 100, 100) : progress;
 
   useEffect(() => {
     if (!currentTrack) return;
@@ -60,7 +59,17 @@ export default function Player() {
 
   return (
     <>
-      {showLyrics && lyricsData && (
+      {/* Fullscreen player (mobile style) */}
+      {fullscreen && (
+        <FullscreenPlayer
+          onClose={() => setFullscreen(false)}
+          lyricsData={lyricsData}
+          seek={seek}
+        />
+      )}
+
+      {/* Desktop lyrics panel */}
+      {showLyrics && lyricsData && !fullscreen && (
         <LyricsPanel
           lyrics={lyricsData.lyrics}
           lines={lyricsData.lines || []}
@@ -68,11 +77,16 @@ export default function Player() {
           currentTime={currentTime}
         />
       )}
+
+      {/* Bottom player bar */}
       <div className="glass border-t border-white/5 px-4 md:px-6 py-3">
         <div className="max-w-screen-xl mx-auto flex items-center gap-4">
 
-          {/* Track info */}
-          <div className="flex items-center gap-3 min-w-0 w-[200px] md:w-[240px] flex-shrink-0">
+          {/* Track info — click to open fullscreen on mobile */}
+          <div
+            className="flex items-center gap-3 min-w-0 w-[200px] md:w-[240px] flex-shrink-0 cursor-pointer md:cursor-default"
+            onClick={() => window.innerWidth < 768 && setFullscreen(true)}
+          >
             <div className="relative w-12 h-12 flex-shrink-0">
               {currentTrack.thumbnailUrl ? (
                 <img
@@ -84,19 +98,23 @@ export default function Player() {
                 <div className="w-12 h-12 rounded-lg bg-surface-3 flex items-center justify-center">
                   <div className="flex gap-0.5">
                     {[0,1,2].map(i => (
-                      <div key={i} className={clsx('w-1 bg-accent rounded-full transition-all', isPlaying ? 'eq-bar' : '')}
-                        style={{ height: isPlaying ? '16px' : '8px', animationDelay: `${i*0.2}s` }} />
+                      <div key={i} className="w-1 bg-accent rounded-full eq-bar"
+                        style={{ height: '16px', animationDelay: `${i*0.2}s` }} />
                     ))}
                   </div>
                 </div>
               )}
+              {/* Mobile expand hint */}
+              <div className="absolute -top-1 -right-1 md:hidden">
+                <ChevronUp size={12} className="text-accent" />
+              </div>
             </div>
             <div className="min-w-0">
               <p className="text-text-primary text-sm font-medium truncate">{currentTrack.title}</p>
               <p className="text-text-secondary text-xs truncate">{currentTrack.artist}</p>
             </div>
             <button
-              onClick={() => setLiked(!liked)}
+              onClick={(e) => { e.stopPropagation(); setLiked(!liked); }}
               className={clsx('flex-shrink-0 hidden md:block', liked ? 'text-pink-400' : 'text-text-muted hover:text-text-primary')}
             >
               <Heart size={16} fill={liked ? 'currentColor' : 'none'} />
@@ -130,7 +148,6 @@ export default function Player() {
                 {repeatMode === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}
               </button>
             </div>
-
             <div className="w-full flex items-center gap-2 max-w-xl">
               <span className="text-xs text-text-muted w-8 text-right">{formatTime(currentTime)}</span>
               <input
@@ -144,13 +161,13 @@ export default function Player() {
             </div>
           </div>
 
-          {/* Right controls */}
+          {/* Right controls - desktop only */}
           <div className="hidden md:flex items-center gap-3 w-[200px] justify-end">
             <button
               onClick={toggleLyrics}
-              className={clsx('transition-colors', showLyrics && lyricsData ? 'text-accent' : lyricsData ? 'text-text-muted hover:text-accent' : 'text-text-muted opacity-30 cursor-not-allowed')}
-              title={lyricsData ? (lyricsData.synced ? 'Synced Lyrics ♪' : 'Lyrics') : 'No lyrics found'}
               disabled={!lyricsData}
+              className={clsx('transition-colors', showLyrics && lyricsData ? 'text-accent' : lyricsData ? 'text-text-muted hover:text-accent' : 'text-text-muted opacity-30 cursor-not-allowed')}
+              title={lyricsData?.synced ? 'Synced Lyrics ♪' : lyricsData ? 'Lyrics' : 'No lyrics'}
             >
               <MicVocal size={16} />
             </button>
